@@ -410,6 +410,10 @@ export function buildAgentSystemPrompt(params: {
         params.ownerDisplaySecret,
       );
 
+      // Heartbeat: inject guidance only when this run is a heartbeat poll
+      const heartbeatPrompt =
+        typeof params.heartbeatPrompt === "string" ? params.heartbeatPrompt.trim() : undefined;
+
       const dynamic = [
         "",
         "## Workspace",
@@ -417,6 +421,17 @@ export function buildAgentSystemPrompt(params: {
         "Treat this directory as the single global workspace for file operations unless explicitly instructed otherwise.",
         "",
         ...(ownerLine ? ["## Authorized Senders", ownerLine, ""] : []),
+        ...(heartbeatPrompt
+          ? [
+              "## Heartbeats",
+              `Heartbeat prompt: ${heartbeatPrompt}`,
+              "If you receive a heartbeat poll (a user message matching the heartbeat prompt above), and there is nothing that needs attention, reply exactly:",
+              "HEARTBEAT_OK",
+              'OpenClaw treats a leading/trailing "HEARTBEAT_OK" as a heartbeat ack (and may discard it).',
+              'If something needs attention, do NOT include "HEARTBEAT_OK"; reply with the alert text instead.',
+              "",
+            ]
+          : []),
         "## Workspace Files (injected)",
         "These user-editable files are loaded by OpenClaw and included below in Project Context.",
         "",

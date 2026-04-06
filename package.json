@@ -1,6 +1,6 @@
 {
   "name": "routeclaw",
-  "version": "2026.4.7",
+  "version": "2026.4.8",
   "description": "OpenClaw with smart pre-filter routing — answer simple questions in ~100 tokens instead of 2000+",
   "keywords": [
     "openclaw",
