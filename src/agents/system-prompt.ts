@@ -393,7 +393,7 @@ export function buildAgentSystemPrompt(params: {
       // Empty file = user intentionally wants no system prompt
       if (!base) return "";
 
-      // Append dynamic workspace + runtime context so file tools always work correctly
+      // Append dynamic sections — things that cannot live in a static file
       const sanitizedWd = sanitizeForPromptLiteral(params.workspaceDir);
       const runtimeLine = buildRuntimeLine(
         params.runtimeInfo,
@@ -401,12 +401,22 @@ export function buildAgentSystemPrompt(params: {
         params.runtimeInfo?.capabilities ?? [],
         params.defaultThinkLevel,
       );
+
+      // Authorized senders: injected dynamically from config (phone numbers / user IDs)
+      const ownerDisplay = params.ownerDisplay === "hash" ? "hash" : "raw";
+      const ownerLine = buildOwnerIdentityLine(
+        params.ownerNumbers ?? [],
+        ownerDisplay,
+        params.ownerDisplaySecret,
+      );
+
       const dynamic = [
         "",
         "## Workspace",
         `Your working directory is: ${sanitizedWd}`,
         "Treat this directory as the single global workspace for file operations unless explicitly instructed otherwise.",
         "",
+        ...(ownerLine ? ["## Authorized Senders", ownerLine, ""] : []),
         "## Workspace Files (injected)",
         "These user-editable files are loaded by OpenClaw and included below in Project Context.",
         "",
