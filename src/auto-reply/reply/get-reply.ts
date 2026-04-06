@@ -20,6 +20,7 @@ import { resolveDefaultModel } from "./directive-handling.defaults.js";
 import { resolveReplyDirectives } from "./get-reply-directives.js";
 import { handleInlineActions } from "./get-reply-inline-actions.js";
 import { runPreparedReply } from "./get-reply-run.js";
+import { runPrefilter } from "./prefilter.js";
 import { finalizeInboundContext } from "./inbound-context.js";
 import { emitPreAgentMessageHooks } from "./message-preprocess-hooks.js";
 import { initSessionState } from "./session.js";
@@ -142,10 +143,25 @@ export async function getReplyFromConfig(
   const targetSessionKey =
     ctx.CommandSource === "native" ? ctx.CommandTargetSessionKey?.trim() : undefined;
   const agentSessionKey = targetSessionKey || ctx.SessionKey;
-  const agentId = resolveSessionAgentId({
+  let agentId = resolveSessionAgentId({
     sessionKey: agentSessionKey,
     config: cfg,
   });
+
+  // RouteClaw pre-filter: for the "g1" entry agent, attempt a direct answer
+  // with a minimal system prompt before touching any workspace files or tools.
+  // Cost: ~50-150 tokens. If the model can't answer, route to g1-worker instead.
+  if (agentId === "g1" && !opts?.isHeartbeat) {
+    const userMsg = ((ctx.Body ?? ctx.RawBody) as string | undefined)?.trim() ?? "";
+    if (userMsg) {
+      const pf = await runPrefilter(userMsg, cfg);
+      if (pf.answered) {
+        return { text: pf.text };
+      }
+    }
+    agentId = "g1-worker";
+  }
+
   const mergedSkillFilter = mergeSkillFilters(
     opts?.skillFilter,
     resolveAgentSkillsFilter(cfg, agentId),

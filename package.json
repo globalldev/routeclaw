@@ -1,19 +1,20 @@
 {
-  "name": "openclaw",
+  "name": "routeclaw",
   "version": "2026.4.5",
-  "description": "Multi-channel AI gateway with extensible messaging integrations",
-  "keywords": [],
-  "homepage": "https://github.com/openclaw/openclaw#readme",
+  "description": "OpenClaw with smart pre-filter routing — answer simple questions in ~100 tokens instead of 2000+",
+  "keywords": ["openclaw", "ai", "gateway", "routing", "telegram", "llm"],
+  "homepage": "https://github.com/globalldev/routeclaw#readme",
   "bugs": {
-    "url": "https://github.com/openclaw/openclaw/issues"
+    "url": "https://github.com/globalldev/routeclaw/issues"
   },
   "license": "MIT",
   "author": "",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/openclaw/openclaw.git"
+    "url": "git+https://github.com/globalldev/routeclaw.git"
   },
   "bin": {
+    "routeclaw": "openclaw.mjs",
     "openclaw": "openclaw.mjs"
   },
   "directories": {
