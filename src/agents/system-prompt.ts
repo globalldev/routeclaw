@@ -1,6 +1,7 @@
 import { createHmac, createHash } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { DEFAULT_SYSTEM_PROMPT } from "./default-system-content.js";
 import type { ReasoningLevel, ThinkLevel } from "../auto-reply/thinking.js";
 import { SILENT_REPLY_TOKEN } from "../auto-reply/tokens.js";
 import { resolveChannelApprovalCapability } from "../channels/plugins/approvals.js";
@@ -359,16 +360,62 @@ export function buildAgentSystemPrompt(params: {
   memoryCitationsMode?: MemoryCitationsMode;
   promptContribution?: ProviderSystemPromptContribution;
 }) {
-  // RouteClaw: if SYSTEM.md exists in the workspace directory, it fully replaces
-  // the hardcoded framework system prompt. This gives users complete control over
-  // what the model sees without touching any compiled code.
-  // Other workspace files (AGENTS.md, SOUL.md, etc.) are still injected separately
-  // by the bootstrap file loader — SYSTEM.md only replaces the framework boilerplate.
-  const systemMdPath = join(params.workspaceDir, "SYSTEM.md");
-  if (existsSync(systemMdPath)) {
-    const override = readFileSync(systemMdPath, "utf-8").trim();
-    if (override) {
-      return override;
+  // RouteClaw: the agent base prompt lives entirely in SYSTEM.md inside the
+  // workspace directory. No hardcoded prompt text exists anywhere in JS/TS files.
+  //
+  // Behaviour:
+  //   • SYSTEM.md missing  → created automatically with the default OpenClaw prompt
+  //   • SYSTEM.md non-empty → used as-is; dynamic workspace/runtime lines appended below
+  //   • SYSTEM.md empty     → no system prompt at all (intentional user override)
+  //
+  // Bootstrap files (AGENTS.md, SOUL.md, etc.) are still injected separately
+  // by the bootstrap file loader and are unaffected by this logic.
+  {
+    const systemMdPath = join(params.workspaceDir, "SYSTEM.md");
+    let systemMdRaw: string | null = null;
+
+    if (existsSync(systemMdPath)) {
+      systemMdRaw = readFileSync(systemMdPath, "utf-8");
+    } else {
+      // First run: bootstrap SYSTEM.md with the default OpenClaw prompt
+      try {
+        mkdirSync(dirname(systemMdPath), { recursive: true });
+        writeFileSync(systemMdPath, DEFAULT_SYSTEM_PROMPT, "utf-8");
+        systemMdRaw = DEFAULT_SYSTEM_PROMPT;
+      } catch {
+        // Cannot write (e.g. read-only FS) — fall through to legacy hardcoded logic
+        systemMdRaw = null;
+      }
+    }
+
+    if (systemMdRaw !== null) {
+      const base = systemMdRaw.trim();
+      // Empty file = user intentionally wants no system prompt
+      if (!base) return "";
+
+      // Append dynamic workspace + runtime context so file tools always work correctly
+      const sanitizedWd = sanitizeForPromptLiteral(params.workspaceDir);
+      const runtimeLine = buildRuntimeLine(
+        params.runtimeInfo,
+        params.runtimeInfo?.channel?.trim().toLowerCase(),
+        params.runtimeInfo?.capabilities ?? [],
+        params.defaultThinkLevel,
+      );
+      const dynamic = [
+        "",
+        "## Workspace",
+        `Your working directory is: ${sanitizedWd}`,
+        "Treat this directory as the single global workspace for file operations unless explicitly instructed otherwise.",
+        "",
+        "## Workspace Files (injected)",
+        "These user-editable files are loaded by OpenClaw and included below in Project Context.",
+        "",
+        SYSTEM_PROMPT_CACHE_BOUNDARY,
+        "## Runtime",
+        runtimeLine,
+      ].join("\n");
+
+      return base + dynamic;
     }
   }
 
