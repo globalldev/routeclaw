@@ -2,6 +2,14 @@ import { createHmac, createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { DEFAULT_SYSTEM_PROMPT } from "./default-system-content.js";
+import { loadSectionPrompt } from "./section-prompt-loader.js";
+import {
+  SECTION_PROMPT_MEMORY,
+  SECTION_PROMPT_REACTIONS_EXTENSIVE,
+  SECTION_PROMPT_REACTIONS_MINIMAL,
+  SECTION_PROMPT_REASONING,
+  SECTION_PROMPT_SKILLS,
+} from "./section-prompts-content.js";
 import type { ReasoningLevel, ThinkLevel } from "../auto-reply/thinking.js";
 import { SILENT_REPLY_TOKEN } from "../auto-reply/tokens.js";
 import { resolveChannelApprovalCapability } from "../channels/plugins/approvals.js";
@@ -393,7 +401,14 @@ export function buildAgentSystemPrompt(params: {
       // Empty file = user intentionally wants no system prompt
       if (!base) return "";
 
-      // Append dynamic sections — things that cannot live in a static file
+      // ── Dynamic sections ──────────────────────────────────────────────────
+      // Everything below cannot live in a static file: it depends on runtime
+      // config, available tools, or per-session parameters.
+      // Each "situational" section (memory, skills, reactions, reasoning) is
+      // loaded from ~/.openclaw/prompts/<name>.md — auto-created on first run
+      // with the default text from src/agents/section-prompts/<name>.md.
+      // Empty file = user intentionally disables that section.
+
       const sanitizedWd = sanitizeForPromptLiteral(params.workspaceDir);
       const runtimeLine = buildRuntimeLine(
         params.runtimeInfo,
@@ -402,7 +417,7 @@ export function buildAgentSystemPrompt(params: {
         params.defaultThinkLevel,
       );
 
-      // Authorized senders: injected dynamically from config (phone numbers / user IDs)
+      // Authorized senders (phone numbers / user IDs from config)
       const ownerDisplay = params.ownerDisplay === "hash" ? "hash" : "raw";
       const ownerLine = buildOwnerIdentityLine(
         params.ownerNumbers ?? [],
@@ -410,17 +425,54 @@ export function buildAgentSystemPrompt(params: {
         params.ownerDisplaySecret,
       );
 
-      // Heartbeat: inject guidance only when this run is a heartbeat poll
+      // Heartbeat guidance (only injected on heartbeat poll runs)
       const heartbeatPrompt =
         typeof params.heartbeatPrompt === "string" ? params.heartbeatPrompt.trim() : undefined;
 
-      const dynamic = [
+      // Memory section — loaded from ~/.openclaw/prompts/memory.md
+      const normalizedToolNames = (params.toolNames ?? [])
+        .map((t) => t.trim().toLowerCase())
+        .filter(Boolean);
+      const availableToolSet = new Set(normalizedToolNames);
+      const hasMemory =
+        availableToolSet.has("memory_search") || availableToolSet.has("memory_get");
+      const memorySectionText = hasMemory
+        ? loadSectionPrompt("memory", SECTION_PROMPT_MEMORY)
+        : "";
+
+      // Skills section — loaded from ~/.openclaw/prompts/skills.md
+      // The dynamic <available_skills> list is appended after the static guidance.
+      const skillsPromptRaw =
+        typeof params.skillsPrompt === "string" ? params.skillsPrompt.trim() : "";
+      const skillsStaticText = skillsPromptRaw
+        ? loadSectionPrompt("skills", SECTION_PROMPT_SKILLS)
+        : "";
+
+      // Reactions section — loaded from ~/.openclaw/prompts/reactions-{level}.md
+      const reactionLevel = params.reactionGuidance?.level;
+      const reactionSectionText = reactionLevel
+        ? loadSectionPrompt(
+            `reactions-${reactionLevel}`,
+            reactionLevel === "minimal"
+              ? SECTION_PROMPT_REACTIONS_MINIMAL
+              : SECTION_PROMPT_REACTIONS_EXTENSIVE,
+          )
+        : "";
+
+      // Reasoning format — loaded from ~/.openclaw/prompts/reasoning.md
+      const reasoningSectionText = params.reasoningTagHint
+        ? loadSectionPrompt("reasoning", SECTION_PROMPT_REASONING)
+        : "";
+
+      const dynamicParts: string[] = [
         "",
         "## Workspace",
         `Your working directory is: ${sanitizedWd}`,
         "Treat this directory as the single global workspace for file operations unless explicitly instructed otherwise.",
         "",
         ...(ownerLine ? ["## Authorized Senders", ownerLine, ""] : []),
+        ...(memorySectionText ? [memorySectionText, ""] : []),
+        ...(skillsStaticText ? [skillsStaticText, skillsPromptRaw, ""] : []),
         ...(heartbeatPrompt
           ? [
               "## Heartbeats",
@@ -432,15 +484,17 @@ export function buildAgentSystemPrompt(params: {
               "",
             ]
           : []),
+        ...(reactionSectionText ? [reactionSectionText, ""] : []),
+        ...(reasoningSectionText ? [reasoningSectionText, ""] : []),
         "## Workspace Files (injected)",
         "These user-editable files are loaded by OpenClaw and included below in Project Context.",
         "",
         SYSTEM_PROMPT_CACHE_BOUNDARY,
         "## Runtime",
         runtimeLine,
-      ].join("\n");
+      ];
 
-      return base + dynamic;
+      return base + dynamicParts.join("\n");
     }
   }
 
