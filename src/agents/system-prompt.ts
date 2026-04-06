@@ -1,4 +1,6 @@
 import { createHmac, createHash } from "node:crypto";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import type { ReasoningLevel, ThinkLevel } from "../auto-reply/thinking.js";
 import { SILENT_REPLY_TOKEN } from "../auto-reply/tokens.js";
 import { resolveChannelApprovalCapability } from "../channels/plugins/approvals.js";
@@ -357,6 +359,19 @@ export function buildAgentSystemPrompt(params: {
   memoryCitationsMode?: MemoryCitationsMode;
   promptContribution?: ProviderSystemPromptContribution;
 }) {
+  // RouteClaw: if SYSTEM.md exists in the workspace directory, it fully replaces
+  // the hardcoded framework system prompt. This gives users complete control over
+  // what the model sees without touching any compiled code.
+  // Other workspace files (AGENTS.md, SOUL.md, etc.) are still injected separately
+  // by the bootstrap file loader — SYSTEM.md only replaces the framework boilerplate.
+  const systemMdPath = join(params.workspaceDir, "SYSTEM.md");
+  if (existsSync(systemMdPath)) {
+    const override = readFileSync(systemMdPath, "utf-8").trim();
+    if (override) {
+      return override;
+    }
+  }
+
   const acpEnabled = params.acpEnabled !== false;
   const sandboxedRuntime = params.sandboxInfo?.enabled === true;
   const acpSpawnRuntimeEnabled = acpEnabled && !sandboxedRuntime;
